@@ -1,0 +1,16 @@
+# Build tools
+setuptools>=80.0.0
+
+# Core scientific computing
+numpy>=2.3.0
+scipy>=1.16.0
+pandas>=2.3.0
+
+# Visualization
+matplotlib>=3.10.0
+
+# Testing
+pytest>=8.4.0
+pytest-cov>=7.0.0
+
+

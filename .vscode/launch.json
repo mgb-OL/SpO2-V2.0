@@ -1,0 +1,57 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debugger: SpO2 calibration using main.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}\\main.py",
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "env": {
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "PYDEVD_USE_CYTHON_SPEEDUPS": "False"
+      }
+    },
+    {
+      "name": "C/C++: gcc.exe build and debug active file",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "C:/dev/SPO2-V2.0/main.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "C:/dev/SPO2-V2.0",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ],
+      "preLaunchTask": "C/C++: gcc.exe build active file"
+    },
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": true,
+      "cwd": ".",
+      "program": "build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
