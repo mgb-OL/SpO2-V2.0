@@ -69,7 +69,7 @@ static int parse_row(char *line, float *ir, float *red, float *ref,
 int main(int argc, char **argv)
 {
     const char *path = (argc > 1) ? argv[1] : "inputs/spo2_captures.csv";
-    const char *out_path = (argc > 2) ? argv[2] : "inputs/spo2_results.csv";
+    const char *out_path = (argc > 2) ? argv[2] : "outputs/spo2_results.csv";
 
     FILE *f = fopen(path, "r");
     if (!f)
