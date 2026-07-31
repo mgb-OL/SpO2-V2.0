@@ -6,6 +6,10 @@
  * el pipeline de calculo de SpO2 sobre cada una, comparando contra la
  * referencia y reportando metricas de error.
  *
+ * Ademas escribe un CSV de resultados (row,column,R,SNR,PI,valid,SpO2_ref,
+ * SpO2_C) con la salida real del algoritmo en C para cada medicion, para
+ * poder cruzarlo con el dataset original inputs/rd.csv.
+ *
  * Archivo autocontenido (incluye spo2_pipeline.c directamente): basta con
  * compilar/ejecutar este archivo solo, sin enlazar nada mas.
  */
@@ -20,11 +24,13 @@
  * compilan unicamente el archivo activo, sin enlazar otros .c del proyecto. */
 #include "spo2_pipeline.c"
 
-/* Una fila tiene 2*SPO2_N_SAMPLES valores + SpO2_ref, cada uno hasta ~12
- * caracteres (incluida la coma); se deja margen amplio. */
+/* Una fila tiene 2*SPO2_N_SAMPLES valores + SpO2_ref + rd_row + rd_column,
+ * cada uno hasta ~12 caracteres (incluida la coma); se deja margen amplio. */
 #define MAX_LINE (SPO2_N_SAMPLES * 2 * 16 + 64)
+#define MAX_COLUMN_LEN 32
 
-static int parse_row(char *line, float *ir, float *red, float *ref)
+static int parse_row(char *line, float *ir, float *red, float *ref,
+                      int *rd_row, char *rd_column)
 {
     char *tok = strtok(line, ",\r\n");
 
@@ -45,12 +51,25 @@ static int parse_row(char *line, float *ir, float *red, float *ref)
     if (!tok)
         return 0;
     *ref = strtof(tok, NULL);
+
+    tok = strtok(NULL, ",\r\n");
+    if (!tok)
+        return 0;
+    *rd_row = atoi(tok);
+
+    tok = strtok(NULL, ",\r\n");
+    if (!tok)
+        return 0;
+    strncpy(rd_column, tok, MAX_COLUMN_LEN - 1);
+    rd_column[MAX_COLUMN_LEN - 1] = '\0';
+
     return 1;
 }
 
 int main(int argc, char **argv)
 {
-    const char *path = (argc > 1) ? argv[1] : "C:/dev/SPO2-V2.0/inputs/spo2_captures.csv";
+    const char *path = (argc > 1) ? argv[1] : "inputs/spo2_captures.csv";
+    const char *out_path = (argc > 2) ? argv[2] : "inputs/spo2_results.csv";
 
     FILE *f = fopen(path, "r");
     if (!f)
@@ -59,14 +78,25 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    FILE *fout = fopen(out_path, "w");
+    if (!fout)
+    {
+        fprintf(stderr, "No se pudo crear '%s'\n", out_path);
+        fclose(f);
+        return 1;
+    }
+    fprintf(fout, "row,column,R,SNR,PI,valid,SpO2_ref,SpO2_C\n");
+
     static char line[MAX_LINE];
     static float ir[SPO2_N_SAMPLES];
     static float red[SPO2_N_SAMPLES];
+    static char rd_column[MAX_COLUMN_LEN];
 
     if (!fgets(line, sizeof(line), f)) /* saltar cabecera */
     {
         fprintf(stderr, "Archivo vacio: '%s'\n", path);
         fclose(f);
+        fclose(fout);
         return 1;
     }
 
@@ -82,13 +112,20 @@ int main(int argc, char **argv)
     while (fgets(line, sizeof(line), f))
     {
         float ref;
-        if (!parse_row(line, ir, red, &ref))
+        int rd_row;
+        if (!parse_row(line, ir, red, &ref, &rd_row, rd_column))
             continue;
 
         n_total++;
 
-        float spo2 = 0.0f;
-        Spo2Status status = spo2_compute(ir, red, &spo2);
+        float R, snr, pi;
+        Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi);
+        int valid = (status == SPO2_OK);
+        float spo2 = roundf(spo2_predict(R));
+
+        fprintf(fout, "%d,%s,%.9g,%.9g,%.9g,%s,%.9g,%.9g\n",
+                rd_row, rd_column, (double)R, (double)snr, (double)pi,
+                valid ? "True" : "False", (double)ref, (double)spo2);
 
         switch (status)
         {
@@ -119,6 +156,7 @@ int main(int argc, char **argv)
         }
     }
     fclose(f);
+    fclose(fout);
 
     double pct_ok = (n_total > 0) ? (100.0 * n_ok / n_total) : 0.0;
 
@@ -144,9 +182,9 @@ int main(int argc, char **argv)
     printf("Capturas validas         = %d (%.1f %%) \n", n_ok, pct_ok);
     printf(" Rechazadas por AC bajo          = %d\n", n_low_ac);
     printf(" Rechazadas por SNR bajo         = %d\n", n_low_snr);
-    printf(" Rechazadas por R fuera de rango = %d\n\n\n", n_r_range);
+    printf(" Rechazadas por R fuera de rango = %d\n\n", n_r_range);
+
+    printf("Resultados escritos en '%s'\n\n", out_path);
 
     return 0;
-
-    
 }

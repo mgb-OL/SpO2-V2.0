@@ -2,10 +2,14 @@
 Convierte inputs/rd.csv (celdas con arrays IR/Red embebidos como texto tipo
 diccionario Python) en un CSV plano de columnas numericas:
 
-    IR_0, ..., IR_599, Red_0, ..., Red_599, SpO2_ref
+    IR_0, ..., IR_599, Red_0, ..., Red_599, SpO2_ref, rd_row, rd_column
 
 listo para que main.c (que enlaza con spo2_pipeline.c) lo lea directamente
 con fscanf/strtok, sin necesidad de parsear texto en C.
+
+rd_row y rd_column identifican la celda de origen en rd.csv (fila y nombre
+de columna, p.ej. "S3"), para poder cruzar los resultados de main.c con el
+dataset original.
 
 Solo se incluyen capturas cuyos arrays IR y Red tengan exactamente
 N_SAMPLES muestras (deben coincidir con SPO2_N_SAMPLES en spo2_pipeline.h).
@@ -33,11 +37,11 @@ def convert(csv_in: str, csv_out: str) -> int:
                 continue
             if len(ir) != N_SAMPLES or len(red) != N_SAMPLES:
                 continue
-            rows.append(list(ir) + list(red) + [ref])
+            rows.append(list(ir) + list(red) + [ref, i, df_raw.columns[j]])
 
     columns = ([f"IR_{k}" for k in range(N_SAMPLES)]
                + [f"Red_{k}" for k in range(N_SAMPLES)]
-               + ["SpO2_ref"])
+               + ["SpO2_ref", "rd_row", "rd_column"])
     pd.DataFrame(rows, columns=columns).to_csv(csv_out, index=False)
     return len(rows)
 
