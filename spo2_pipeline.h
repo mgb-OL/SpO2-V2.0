@@ -54,13 +54,15 @@ typedef enum
  *
  * @param ir        Array de SPO2_N_SAMPLES muestras IR  (canal infrarrojo)
  * @param red       Array de SPO2_N_SAMPLES muestras Red (canal rojo)
- * @param out_R     [out] Ratio R = (AC_red/DC_red) / (AC_ir/DC_ir)
- * @param out_snr   [out] SNR en la frecuencia cardíaca dominante (dB)
- * @param out_pi    [out] Perfusion index IR (%)
- * @return          SPO2_OK o código de error
+ * @param out_R       [out] Ratio R = (AC_red/DC_red) / (AC_ir/DC_ir)
+ * @param out_snr     [out] SNR en la frecuencia cardíaca dominante (dB)
+ * @param out_pi      [out] Perfusion index IR (%)
+ * @param out_hr_bpm  [out] Frecuencia cardíaca dominante (pulsaciones por minuto, entero)
+ * @return            SPO2_OK o código de error
  */
 Spo2Status spo2_compute_R(const float *ir, const float *red,
-                          float *out_R, float *out_snr, float *out_pi);
+                          float *out_R, float *out_snr, float *out_pi,
+                          float *out_hr_bpm);
 
 /**
  * Aplica la curva de calibración cuadrática para obtener SpO2 (%).
@@ -73,8 +75,9 @@ float spo2_predict(float R);
 
 /**
  * Función de conveniencia: compute_R + predict en un solo paso.
- * Devuelve SPO2_OK y rellena *out_spo2, o un código de error.
+ * Devuelve SPO2_OK y rellena *out_spo2 y *out_hr_bpm, o un código de error.
  */
-Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2);
+Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,
+                        float *out_hr_bpm);
 
 #endif /* SPO2_PIPELINE_H */

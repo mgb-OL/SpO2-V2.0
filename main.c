@@ -6,9 +6,9 @@
  * el pipeline de calculo de SpO2 sobre cada una, comparando contra la
  * referencia y reportando metricas de error.
  *
- * Ademas escribe un CSV de resultados (row,column,R,SNR,PI,valid,SpO2_ref,
- * SpO2_C) con la salida real del algoritmo en C para cada medicion, para
- * poder cruzarlo con el dataset original inputs/rd.csv.
+ * Ademas escribe un CSV de resultados (row,column,R,SNR,PI,HR_bpm,valid,
+ * SpO2_ref,SpO2_C) con la salida real del algoritmo en C para cada medicion,
+ * para poder cruzarlo con el dataset original inputs/rd.csv.
  *
  * Archivo autocontenido (incluye spo2_pipeline.c directamente): basta con
  * compilar/ejecutar este archivo solo, sin enlazar nada mas.
@@ -85,7 +85,7 @@ int main(int argc, char **argv)
         fclose(f);
         return 1;
     }
-    fprintf(fout, "row,column,R,SNR,PI,valid,SpO2_ref,SpO2_C\n");
+    fprintf(fout, "row,column,R,SNR,PI,HR_bpm,valid,SpO2_ref,SpO2_C\n");
 
     static char line[MAX_LINE];
     static float ir[SPO2_N_SAMPLES];
@@ -118,14 +118,15 @@ int main(int argc, char **argv)
 
         n_total++;
 
-        float R, snr, pi;
-        Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi);
+        float R, snr, pi, hr_bpm;
+        Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, &hr_bpm);
         int valid = (status == SPO2_OK);
         float spo2 = roundf(spo2_predict(R));
 
-        fprintf(fout, "%d,%s,%.9g,%.9g,%.9g,%s,%.9g,%.9g\n",
+        fprintf(fout, "%d,%s,%.9g,%.9g,%.9g,%.9g,%s,%.9g,%.9g\n",
                 rd_row, rd_column, (double)R, (double)snr, (double)pi,
-                valid ? "True" : "False", (double)ref, (double)spo2);
+                (double)hr_bpm, valid ? "True" : "False", (double)ref,
+                (double)spo2);
 
         switch (status)
         {
@@ -178,8 +179,8 @@ int main(int argc, char **argv)
         printf("MAE  = %.2f %%\n\n", mae);
     }
 
-    printf("Capturas procesadas      = %d muestras\n", n_total);
-    printf("Capturas validas         = %d (%.1f %%) \n", n_ok, pct_ok);
+    printf("Capturas procesadas              = %d muestras\n", n_total);
+    printf("Capturas validas                 = %d (%.1f %%) \n", n_ok, pct_ok);
     printf(" Rechazadas por AC bajo          = %d\n", n_low_ac);
     printf(" Rechazadas por SNR bajo         = %d\n", n_low_snr);
     printf(" Rechazadas por R fuera de rango = %d\n\n", n_r_range);

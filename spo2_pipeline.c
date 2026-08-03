@@ -183,7 +183,8 @@ static float compute_snr(const float *ac_signal, int n, float fs,
  * ═══════════════════════════════════════════════════════════════════════ */
 
 Spo2Status spo2_compute_R(const float *ir, const float *red,
-                          float *out_R, float *out_snr, float *out_pi)
+                          float *out_R, float *out_snr, float *out_pi,
+                          float *out_hr_bpm)
 {
     /* Buffers estáticos: sin malloc */
     static float ir_work[SPO2_N_WORK];
@@ -221,6 +222,7 @@ Spo2Status spo2_compute_R(const float *ir, const float *red,
 
     /* Frecuencia cardíaca dominante */
     float f_c = find_dominant_freq(ir_ac, n, SPO2_FS);
+    *out_hr_bpm = roundf(f_c * 60.0f); /* Hz -> pulsaciones por minuto (entero) */
 
     /* Amplitud AC via DFT en banda estrecha */
     float amp_ir = dft_amplitude(ir_nodC, n, SPO2_FS, f_c, SPO2_DFT_BW);
@@ -260,10 +262,11 @@ float spo2_predict(float R)
     return SPO2_CAL_A + SPO2_CAL_B * R + SPO2_CAL_C * R * R;
 }
 
-Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2)
+Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,
+                        float *out_hr_bpm)
 {
     float R, snr, pi;
-    Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi);
+    Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, out_hr_bpm);
     if (status == SPO2_OK)
     {
         *out_spo2 = spo2_predict(R);
