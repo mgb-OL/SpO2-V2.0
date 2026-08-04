@@ -41,8 +41,11 @@
 #define SPO2_SNR_THRESHOLD 9.0f
 /* Lower bound of the physiologically plausible range for the ratio R. */
 #define SPO2_R_MIN 0.1f
-/* Upper bound of the physiologically plausible range for the ratio R. */
-#define SPO2_R_MAX 2.0f
+/* Upper bound of the physiologically plausible range for the ratio R.
+ * Capped at 1.0 because only ~0.3% of the calibration dataset (2 of 591
+ * valid captures) falls above it; regressing past that point is
+ * extrapolation from almost no data, not a supported measurement. */
+#define SPO2_R_MAX 1.0f
 
 /* SQI (Signal Quality Index), range 0-255. Combines three components,
  * each normalized to [0,1] and weighted by SQI_W_*, then scaled to 8 bits:
@@ -78,12 +81,17 @@
 #define SQI_W_PURITY 0.3f
 
 /* Quadratic calibration coefficients (SpO2 = CAL_A + CAL_B * R + CAL_C * R^2).
- * Obtained by degree-2 polynomial regression over the calibration dataset.
- * RMSE = 4.27% (vs. 4.49% for the linear model)
+ * Degree-2 polynomial regression over the calibration captures with
+ * R <= SPO2_R_MAX (589 of 591 valid captures). Unconstrained regression over
+ * the full dataset turns upward past R ~= 1.06 (not physiologically valid),
+ * which is why SPO2_R_MAX excludes that region instead of forcing the curve
+ * flat to cover it: within [SPO2_R_MIN, SPO2_R_MAX] this fit is already
+ * monotonically decreasing on its own (vertex at R ~= 1.35, outside range).
+ * RMSE = 4.31%
  * Update after every calibration session. */
-#define SPO2_CAL_A 108.84f
-#define SPO2_CAL_B -60.25f
-#define SPO2_CAL_C 28.34f
+#define SPO2_CAL_A 107.49f
+#define SPO2_CAL_B -52.88f
+#define SPO2_CAL_C 19.55f
 
 /* ─── Return codes ───────────────────────────────────────────────────── */
 

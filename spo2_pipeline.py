@@ -31,7 +31,8 @@ FC_MAX = 4.0      # Hz — límite superior banda cardíaca (~240 bpm)
 FFT_BW = 0.1      # Hz — semiancho de ventana FFT alrededor de FC
 SNR_THRESHOLD = 9 # dB — capturas por debajo se descartan
 R_MIN = 0.1       # límite fisiológico inferior de R
-R_MAX = 2.0       # límite fisiológico superior de R
+R_MAX = 1.0       # límite superior de R; solo ~0.3% de las capturas de calibración
+                  # supera este valor, así que por encima es extrapolación casi sin datos
 
 
 # ──────────────────────────────────────────────
