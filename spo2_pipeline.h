@@ -1,13 +1,13 @@
 /**
  * spo2_pipeline.h
  *
- * Pipeline de cálculo de SpO2 a partir de señales PPG (IR + Red).
+ * SpO2 computation pipeline from PPG signals (IR + Red).
  *
- * Método: extracción de AC vía DFT en banda estrecha alrededor de la
- * frecuencia cardíaca dominante. Robusto con perfusion index bajo (<1%).
+ * Method: AC extraction via narrow-band DFT around the dominant heart-rate
+ * frequency. Robust at low perfusion index (<1%).
  *
- * Requisitos: C99, libm (-lm)
- * Sin allocación dinámica. Todos los buffers son de tamaño estático.
+ * Requirements: C99, libm (-lm)
+ * No dynamic allocation. All buffers are statically sized.
  */
 
 #ifndef SPO2_PIPELINE_H
@@ -15,93 +15,121 @@
 
 #include <stdint.h>
 
-/* ─── Configuración ─────────────────────────────────────────────────── */
+/* ─── Configuration ──────────────────────────────────────────────────── */
 
-#define SPO2_FS 50.0f          /* Hz — frecuencia de muestreo        */
-#define SPO2_N_SAMPLES 600     /* muestras por captura               */
-#define SPO2_MARGIN_SAMPLES 25 /* muestras a descartar en cada borde */
-#define SPO2_N_WORK 550        /* N_SAMPLES - 2*MARGIN               */
+/* Sampling frequency of the IR/Red capture, in Hz. */
+#define SPO2_FS 50.0f
+/* Number of samples per capture (per channel), as delivered by the caller. */
+#define SPO2_N_SAMPLES 600
+/* Samples discarded at each edge of the capture, to crop out the bandpass
+ * filter's startup transient (see bandpass_filter in spo2_pipeline.c). */
+#define SPO2_MARGIN_SAMPLES 25
+/* Length of the cropped working window: N_SAMPLES minus one margin on
+ * each side (600 - 2*25 = 550). This is the actual length used for every
+ * DC/AC/frequency computation in spo2_compute_R. */
+#define SPO2_N_WORK 550
 
-#define SPO2_FC_MIN 0.5f        /* Hz — límite inferior banda cardíaca */
-#define SPO2_FC_MAX 4.0f        /* Hz — límite superior (~240 bpm)     */
-#define SPO2_DFT_BW 0.1f        /* Hz — semiancho ventana DFT          */
-#define SPO2_SNR_THRESHOLD 9.0f /* dB — capturas por debajo se rechazan */
-#define SPO2_R_MIN 0.1f         /* límite fisiológico inferior de R     */
-#define SPO2_R_MAX 2.0f         /* límite fisiológico superior de R     */
+/* Lower edge of the cardiac frequency band, in Hz. */
+#define SPO2_FC_MIN 0.5f
+/* Upper edge of the cardiac frequency band, in Hz (~240 bpm). */
+#define SPO2_FC_MAX 4.0f
+/* Half-width of the narrow-band DFT window placed around the detected
+ * heart-rate frequency, in Hz (i.e. the window spans f_c ± SPO2_DFT_BW). */
+#define SPO2_DFT_BW 0.1f
+/* Minimum acceptable SNR at the heart-rate peak, in dB; captures scoring
+ * below this are rejected as too noisy to trust. */
+#define SPO2_SNR_THRESHOLD 9.0f
+/* Lower bound of the physiologically plausible range for the ratio R. */
+#define SPO2_R_MIN 0.1f
+/* Upper bound of the physiologically plausible range for the ratio R. */
+#define SPO2_R_MAX 2.0f
 
-/* SQI (Signal Quality Index), rango 0-255. Combina tres componentes
- * normalizados a [0,1] con pesos SQI_W_*, escalado luego a 8 bits:
- *   - SNR: rampa lineal entre SQI_SNR_MIN y SQI_SNR_MAX (dB)
- *   - PI:  trapezoide, penaliza perfusión débil y también PI anómalamente
- *          alto (posible artefacto de movimiento / desacople del sensor)
- *   - Pureza espectral: fracción de la energía en banda cardíaca
- *     concentrada en el pico (vs. dispersa en ruido de banda ancha) */
-#define SQI_SNR_MIN 0.0f  /* dB — por debajo, componente SNR = 0     */
-#define SQI_SNR_MAX 20.0f /* dB — por encima, componente SNR = 1     */
+/* SQI (Signal Quality Index), range 0-255. Combines three components,
+ * each normalized to [0,1] and weighted by SQI_W_*, then scaled to 8 bits:
+ *   - SNR: linear ramp between SQI_SNR_MIN and SQI_SNR_MAX (dB)
+ *   - PI:  trapezoid, penalizes both weak perfusion and abnormally high PI
+ *          (possible motion artifact / sensor decoupling)
+ *   - Spectral purity: fraction of the cardiac-band energy concentrated at
+ *     the peak (vs. spread out into broadband noise) */
+/* Below this SNR (dB), the SNR component of the SQI is 0. */
+#define SQI_SNR_MIN 0.0f
+/* At or above this SNR (dB), the SNR component of the SQI is 1. */
+#define SQI_SNR_MAX 20.0f
 
-/* Umbrales de PI derivados de los percentiles P5/P25/P90/P99 del dataset
- * de calibración (673 capturas, inputs/rd.csv). La escala de PI en este
- * pipeline (AC/DC vía Goertzel) es ~100x menor que los valores típicos de
- * la literatura clínica (0.5-5%), así que NO usar umbrales de manual/paper.
- * Actualizar junto con SPO2_CAL_* tras cada sesión de calibración. */
-#define SQI_PI_LOW_MIN 0.003f  /* %  — por debajo, componente PI = 0      */
-#define SQI_PI_LOW_OPT 0.005f  /* %  — a partir de aquí, componente PI = 1 */
-#define SQI_PI_HIGH_OPT 0.020f /* %  — hasta aquí, componente PI = 1      */
-#define SQI_PI_HIGH_MAX 0.040f /* %  — por encima, componente PI = 0      */
+/* PI thresholds derived from the P5/P25/P90/P99 percentiles of the
+ * calibration dataset (673 captures, inputs/rd.csv). The PI scale in this
+ * pipeline (AC/DC via Goertzel) is ~100x smaller than typical clinical
+ * literature values (0.5-5%), so do NOT reuse textbook/manual thresholds
+ * here. Update together with SPO2_CAL_* after every calibration session. */
+/* Below this PI (%), the PI component of the SQI is 0. */
+#define SQI_PI_LOW_MIN 0.003f
+/* At or above this PI (%), the PI component of the SQI reaches 1. */
+#define SQI_PI_LOW_OPT 0.005f
+/* Up to this PI (%), the PI component of the SQI stays at 1. */
+#define SQI_PI_HIGH_OPT 0.020f
+/* At or above this PI (%), the PI component of the SQI is 0. */
+#define SQI_PI_HIGH_MAX 0.040f
 
-#define SQI_W_SNR 0.4f    /* peso del componente SNR                 */
-#define SQI_W_PI 0.3f     /* peso del componente PI                  */
-#define SQI_W_PURITY 0.3f /* peso del componente de pureza espectral */
+/* Weight of the SNR component in the SQI blend. */
+#define SQI_W_SNR 0.4f
+/* Weight of the PI component in the SQI blend. */
+#define SQI_W_PI 0.3f
+/* Weight of the spectral-purity component in the SQI blend. */
+#define SQI_W_PURITY 0.3f
 
-/* Coeficientes de calibración cuadrática (SpO2 = CAL_A + CAL_B * R + CAL_C * R²)
- * Obtenidos por regresión polinomial de grado 2 sobre dataset de calibración.
- * RMSE = 4.27%  (vs 4.49% del modelo lineal)
- * Actualizar tras cada sesión de calibración. */
+/* Quadratic calibration coefficients (SpO2 = CAL_A + CAL_B * R + CAL_C * R^2).
+ * Obtained by degree-2 polynomial regression over the calibration dataset.
+ * RMSE = 4.27% (vs. 4.49% for the linear model)
+ * Update after every calibration session. */
 #define SPO2_CAL_A 108.84f
 #define SPO2_CAL_B -60.25f
 #define SPO2_CAL_C 28.34f
 
-/* ─── Códigos de retorno ─────────────────────────────────────────────── */
+/* ─── Return codes ───────────────────────────────────────────────────── */
 
 typedef enum
 {
     SPO2_OK = 0,
-    SPO2_ERR_LOW_AC = -1,  /* amplitud AC demasiado baja             */
-    SPO2_ERR_LOW_SNR = -2, /* SNR por debajo del umbral              */
-    SPO2_ERR_R_RANGE = -3, /* R fuera del rango fisiológico          */
+    /* AC amplitude too low to extract a meaningful ratio (no detectable
+     * pulsatile signal on the IR channel). */
+    SPO2_ERR_LOW_AC = -1,
+    /* SNR at the heart-rate peak below SPO2_SNR_THRESHOLD. */
+    SPO2_ERR_LOW_SNR = -2,
+    /* Computed R outside [SPO2_R_MIN, SPO2_R_MAX]. */
+    SPO2_ERR_R_RANGE = -3,
 } Spo2Status;
 
-/* ─── API pública ────────────────────────────────────────────────────── */
+/* ─── Public API ─────────────────────────────────────────────────────── */
 
 /**
- * Calcula el ratio R y métricas de calidad de señal.
+ * Computes the ratio R and signal-quality metrics.
  *
- * @param ir        Array de SPO2_N_SAMPLES muestras IR  (canal infrarrojo)
- * @param red       Array de SPO2_N_SAMPLES muestras Red (canal rojo)
+ * @param ir        Array of SPO2_N_SAMPLES IR samples (infrared channel)
+ * @param red       Array of SPO2_N_SAMPLES Red samples (red channel)
  * @param out_R       [out] Ratio R = (AC_red/DC_red) / (AC_ir/DC_ir)
- * @param out_snr     [out] SNR en la frecuencia cardíaca dominante (dB)
- * @param out_pi      [out] Perfusion index IR (%)
- * @param out_hr_bpm  [out] Frecuencia cardíaca dominante (pulsaciones por minuto, entero)
- * @param out_sqi     [out] Signal Quality Index, 0-255 (255 = mejor calidad)
- * @return            SPO2_OK o código de error
+ * @param out_snr     [out] SNR at the dominant heart-rate frequency (dB)
+ * @param out_pi      [out] IR perfusion index (%)
+ * @param out_hr_bpm  [out] Dominant heart rate (beats per minute, integer)
+ * @param out_sqi     [out] Signal Quality Index, 0-255 (255 = best quality)
+ * @return            SPO2_OK, or an error code
  */
 Spo2Status spo2_compute_R(const float *ir, const float *red,
                           float *out_R, float *out_snr, float *out_pi,
                           float *out_hr_bpm, uint8_t *out_sqi);
 
 /**
- * Aplica la curva de calibración cuadrática para obtener SpO2 (%).
- * SpO2 = CAL_A + CAL_B * R + CAL_C * R²
+ * Applies the quadratic calibration curve to obtain SpO2 (%).
+ * SpO2 = CAL_A + CAL_B * R + CAL_C * R^2
  *
- * @param R     Ratio R válido (de spo2_compute_R)
- * @return      SpO2 estimado (%)
+ * @param R     Valid ratio R (from spo2_compute_R)
+ * @return      Estimated SpO2 (%)
  */
 float spo2_predict(float R);
 
 /**
- * Función de conveniencia: compute_R + predict en un solo paso.
- * Devuelve SPO2_OK y rellena *out_spo2, *out_hr_bpm y *out_sqi, o un
- * código de error.
+ * Convenience function: compute_R + predict in a single call.
+ * Returns SPO2_OK and fills *out_spo2, *out_hr_bpm and *out_sqi, or an
+ * error code (in which case *out_spo2 is left untouched).
  */
 Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,
                         float *out_hr_bpm, uint8_t *out_sqi);
