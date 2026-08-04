@@ -4,4 +4,11 @@ venv/
 ENV/
 env/
 
+# Build artifacts
+build/
+*.exe
+*.o
+__pycache__/
+*.pyc
+
 
