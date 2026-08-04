@@ -17,14 +17,14 @@
       "name": "C/C++: gcc.exe build and debug active file",
       "type": "cppdbg",
       "request": "launch",
-      "program": "C:/dev/SPO2-V2.0/main.exe",
+      "program": "${workspaceFolder}\\main.exe",
       "args": [],
       "stopAtEntry": false,
-      "cwd": "C:/dev/SPO2-V2.0",
+      "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false,
       "MIMode": "gdb",
-      "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe",
+      "miDebuggerPath": "C:\\msys64\\ucrt64\\bin\\gdb.exe",
       "setupCommands": [
         {
           "description": "Enable pretty-printing for gdb",

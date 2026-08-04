@@ -85,7 +85,7 @@ int main(int argc, char **argv)
         fclose(f);
         return 1;
     }
-    fprintf(fout, "row,column,R,SNR,PI,HR_bpm,valid,SpO2_ref,SpO2_C\n");
+    fprintf(fout, "row,column,valid,R,SNR,PI,SQI,SpO2_ref,SpO2_C,HR_bpm\n");
 
     static char line[MAX_LINE];
     static float ir[SPO2_N_SAMPLES];
@@ -119,14 +119,15 @@ int main(int argc, char **argv)
         n_total++;
 
         float R, snr, pi, hr_bpm;
-        Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, &hr_bpm);
+        uint8_t sqi;
+        Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, &hr_bpm, &sqi);
         int valid = (status == SPO2_OK);
         float spo2 = roundf(spo2_predict(R));
 
-        fprintf(fout, "%d,%s,%.9g,%.9g,%.9g,%.9g,%s,%.9g,%.9g\n",
-                rd_row, rd_column, (double)R, (double)snr, (double)pi,
-                (double)hr_bpm, valid ? "True" : "False", (double)ref,
-                (double)spo2);
+        fprintf(fout, "%d,%s,%s,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g\n",
+                rd_row, rd_column, valid ? "True" : "False", (double)R,
+                (double)snr, (double)pi, (unsigned)sqi, (double)ref,
+                (double)spo2, (double)hr_bpm);
 
         switch (status)
         {

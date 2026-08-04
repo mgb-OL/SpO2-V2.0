@@ -148,12 +148,17 @@ static float dft_amplitude(const float *signal_no_dc, int n, float fs,
 }
 
 /**
- * SNR (dB) del pico cardíaco respecto al ruido de fondo en la banda.
+ * SNR (dB) del pico cardíaco respecto al ruido de fondo en la banda, y
+ * pureza espectral: fracción de la energía de toda la banda cardíaca
+ * concentrada en la ventana del pico (1.0 = toda la energía en el pico,
+ * valores bajos = energía dispersa en ruido de banda ancha / movimiento).
  */
-static float compute_snr(const float *ac_signal, int n, float fs,
-                         float f_c, float bw)
+static void compute_snr_purity(const float *ac_signal, int n, float fs,
+                               float f_c, float bw,
+                               float *out_snr_db, float *out_purity)
 {
     float peak_power = 0.0f;
+    float band_power = 0.0f;
     float total_power = 0.0f;
     int total_bins = 0;
 
@@ -164,6 +169,7 @@ static float compute_snr(const float *ac_signal, int n, float fs,
         total_bins++;
         if (f >= f_c - bw && f <= f_c + bw)
         {
+            band_power += p;
             if (p > peak_power)
                 peak_power = p;
         }
@@ -173,9 +179,53 @@ static float compute_snr(const float *ac_signal, int n, float fs,
                            ? total_power / (float)total_bins
                            : 1e-12f;
 
-    if (noise_mean < 1e-30f)
+    *out_snr_db = (noise_mean < 1e-30f)
+                      ? 0.0f
+                      : 10.0f * log10f(peak_power / noise_mean);
+    *out_purity = (total_power > 1e-30f) ? (band_power / total_power) : 0.0f;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * 2b. SQI (SIGNAL QUALITY INDEX)
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+static float clamp01(float x)
+{
+    if (x < 0.0f)
         return 0.0f;
-    return 10.0f * log10f(peak_power / noise_mean);
+    if (x > 1.0f)
+        return 1.0f;
+    return x;
+}
+
+/**
+ * Función trapezoidal: 0 por debajo de low_min y por encima de high_max,
+ * rampa lineal en los tramos intermedios, 1 en la meseta [low_opt, high_opt].
+ */
+static float trapezoid(float x, float low_min, float low_opt,
+                       float high_opt, float high_max)
+{
+    if (x <= low_min || x >= high_max)
+        return 0.0f;
+    if (x < low_opt)
+        return (x - low_min) / (low_opt - low_min);
+    if (x > high_opt)
+        return (high_max - x) / (high_max - high_opt);
+    return 1.0f;
+}
+
+/**
+ * Combina SNR, perfusion index y pureza espectral en un score 0-255.
+ */
+static uint8_t compute_sqi(float snr_db, float pi_pct, float purity)
+{
+    float f_snr = clamp01((snr_db - SQI_SNR_MIN) / (SQI_SNR_MAX - SQI_SNR_MIN));
+    float f_pi = trapezoid(pi_pct, SQI_PI_LOW_MIN, SQI_PI_LOW_OPT,
+                           SQI_PI_HIGH_OPT, SQI_PI_HIGH_MAX);
+    float f_purity = clamp01(purity);
+
+    float sqi = SQI_W_SNR * f_snr + SQI_W_PI * f_pi + SQI_W_PURITY * f_purity;
+    return (uint8_t)lroundf(clamp01(sqi) * 255.0f);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -184,7 +234,7 @@ static float compute_snr(const float *ac_signal, int n, float fs,
 
 Spo2Status spo2_compute_R(const float *ir, const float *red,
                           float *out_R, float *out_snr, float *out_pi,
-                          float *out_hr_bpm)
+                          float *out_hr_bpm, uint8_t *out_sqi)
 {
     /* Buffers estáticos: sin malloc */
     static float ir_work[SPO2_N_WORK];
@@ -233,16 +283,19 @@ Spo2Status spo2_compute_R(const float *ir, const float *red,
         *out_R = 0.0f;
         *out_snr = 0.0f;
         *out_pi = 0.0f;
+        *out_sqi = 0;
         return SPO2_ERR_LOW_AC;
     }
 
     float R = (amp_red / dc_red) / (amp_ir / dc_ir);
-    float snr = compute_snr(ir_ac, n, SPO2_FS, f_c, SPO2_DFT_BW);
+    float snr, purity;
+    compute_snr_purity(ir_ac, n, SPO2_FS, f_c, SPO2_DFT_BW, &snr, &purity);
     float pi = (amp_ir / dc_ir) * 100.0f;
 
     *out_R = R;
     *out_snr = snr;
     *out_pi = pi;
+    *out_sqi = compute_sqi(snr, pi, purity);
 
     /* Validación de calidad */
     if (snr < SPO2_SNR_THRESHOLD)
@@ -263,10 +316,10 @@ float spo2_predict(float R)
 }
 
 Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,
-                        float *out_hr_bpm)
+                        float *out_hr_bpm, uint8_t *out_sqi)
 {
     float R, snr, pi;
-    Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, out_hr_bpm);
+    Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, out_hr_bpm, out_sqi);
     if (status == SPO2_OK)
     {
         *out_spo2 = spo2_predict(R);
