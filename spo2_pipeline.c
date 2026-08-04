@@ -375,7 +375,8 @@ Spo2Status spo2_compute_R(const float *ir, const float *red,
 
 float spo2_predict(float R)
 {
-    return SPO2_CAL_A + SPO2_CAL_B * R + SPO2_CAL_C * R * R;
+    float spo2 = SPO2_CAL_A + SPO2_CAL_B * R + SPO2_CAL_C * R * R;
+    return fmaxf(SPO2_OUT_MIN, fminf(SPO2_OUT_MAX, spo2));
 }
 
 Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,

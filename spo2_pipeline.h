@@ -93,6 +93,12 @@
 #define SPO2_CAL_B -52.88f
 #define SPO2_CAL_C 19.55f
 
+/* Physiologically plausible bounds for the final SpO2 output (%); the
+ * quadratic fit overshoots 100 near SPO2_R_MIN, so the output is clamped
+ * to this range regardless of what the raw polynomial evaluates to. */
+#define SPO2_OUT_MIN 70.0f
+#define SPO2_OUT_MAX 100.0f
+
 /* ─── Return codes ───────────────────────────────────────────────────── */
 
 typedef enum
