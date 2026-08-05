@@ -20,14 +20,14 @@
 /* Sampling frequency of the IR/Red capture, in Hz. */
 #define SPO2_FS 50.0f
 /* Number of samples per capture (per channel), as delivered by the caller. */
-#define SPO2_N_SAMPLES 300
+#define SPO2_N_SAMPLES 600
 /* Samples discarded at each edge of the capture, to crop out the bandpass
  * filter's startup transient (see bandpass_filter in spo2_pipeline.c). */
 #define SPO2_MARGIN_SAMPLES 25
 /* Length of the cropped working window: N_SAMPLES minus one margin on
- * each side (300 - 2*25 = 250). This is the actual length used for every
+ * each side (600 - 2*25 = 550). This is the actual length used for every
  * DC/AC/frequency computation in spo2_compute_R. */
-#define SPO2_N_WORK 250
+#define SPO2_N_WORK 550
 
 /* Lower edge of the cardiac frequency band, in Hz. */
 #define SPO2_FC_MIN 0.5f
@@ -38,7 +38,7 @@
 #define SPO2_DFT_BW 0.1f
 /* Minimum acceptable SNR at the heart-rate peak, in dB; captures scoring
  * below this are rejected as too noisy to trust. */
-#define SPO2_SNR_THRESHOLD 7.0f
+#define SPO2_SNR_THRESHOLD 9.0f
 /* Lower bound of the physiologically plausible range for the ratio R. */
 #define SPO2_R_MIN 0.1f
 /* Upper bound of the physiologically plausible range for the ratio R.
