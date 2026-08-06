@@ -7,8 +7,11 @@
  * and reporting error metrics.
  *
  * Expected format of the input CSV (one row per capture):
- *   IR_0, ..., IR_599, Red_0, ..., Red_599, SpO2_ref, rd_row, rd_column
- * (SPO2_N_SAMPLES = 600 samples per channel; see spo2_pipeline.h)
+ *   n_samples, IR_0, ..., IR_{n_samples-1}, Red_0, ..., Red_{n_samples-1},
+ *   SpO2_ref, rd_row, rd_column
+ * n_samples is the actual length of the raw capture and varies row to row
+ * (it is not a fixed constant); it must not exceed SPO2_MAX_N_SAMPLES
+ * (see spo2_pipeline.h).
  *
  * It also writes a results CSV with the actual output of the C algorithm
  * for every measurement, with columns:
@@ -30,9 +33,10 @@
  * active file, without linking other .c files in the project. */
 #include "spo2_pipeline.c"
 
-/* A row holds 2*SPO2_N_SAMPLES values + SpO2_ref + rd_row + rd_column,
- * each up to ~12 characters (comma included); a generous margin is used. */
-#define MAX_LINE (SPO2_N_SAMPLES * 2 * 16 + 64)
+/* A row holds n_samples + 2*n_samples values + SpO2_ref + rd_row + rd_column,
+ * each up to ~12 characters (comma included); a generous margin is used,
+ * sized to the largest capture the pipeline can handle. */
+#define MAX_LINE (SPO2_MAX_N_SAMPLES * 2 * 16 + 64)
 /* Maximum length of the source column name in rd.csv (e.g. "S3"). */
 #define MAX_COLUMN_LEN 32
 
@@ -40,24 +44,34 @@
  * Parses one line of the input CSV and fills the output arrays/values.
  *
  * The line is walked once with strtok, tokenizing on commas (or the
- * trailing carriage-return/newline): first the SPO2_N_SAMPLES IR values,
- * then the SPO2_N_SAMPLES Red values, then SpO2_ref, rd_row and rd_column,
- * in that fixed order (see the format documented at the top of the file).
- * strtok modifies "line" in place (replaces commas with '\0'), which is
- * why the input buffer can't be a string literal.
+ * trailing carriage-return/newline): first n_samples itself, then the
+ * n_samples IR values, then the n_samples Red values, then SpO2_ref,
+ * rd_row and rd_column, in that fixed order (see the format documented at
+ * the top of the file). strtok modifies "line" in place (replaces commas
+ * with '\0'), which is why the input buffer can't be a string literal.
  *
  * @return 1 if the row has every expected field, 0 if the line is
- *         truncated/incomplete (e.g. a trailing blank line in the file);
- *         in that case the caller must discard the row and keep going.
+ *         truncated/incomplete (e.g. a trailing blank line in the file,
+ *         or n_samples exceeding SPO2_MAX_N_SAMPLES); in that case the
+ *         caller must discard the row and keep going.
  */
-static int parse_row(char *line, float *ir, float *red, float *ref,
-                      int *rd_row, char *rd_column)
+static int parse_row(char *line, float *ir, float *red, int *n_samples,
+                      float *ref, int *rd_row, char *rd_column)
 {
     /* First token: start tokenizing the freshly read line. */
     char *tok = strtok(line, ",\r\n");
 
-    /* Infrared (IR) channel: the first SPO2_N_SAMPLES fields of the row. */
-    for (int i = 0; i < SPO2_N_SAMPLES; i++)
+    /* n_samples: the actual length of this capture, read from the row
+     * itself rather than assumed to be a fixed constant. */
+    if (!tok)
+        return 0;
+    *n_samples = atoi(tok);
+    if (*n_samples <= 0 || *n_samples > SPO2_MAX_N_SAMPLES)
+        return 0;
+    tok = strtok(NULL, ",\r\n");
+
+    /* Infrared (IR) channel: the next n_samples fields of the row. */
+    for (int i = 0; i < *n_samples; i++)
     {
         /* Ran out of tokens before filling the array: malformed row. */
         if (!tok)
@@ -69,8 +83,8 @@ static int parse_row(char *line, float *ir, float *red, float *ref,
         /* Advance to the next comma-separated field. */
         tok = strtok(NULL, ",\r\n");
     }
-    /* Red channel: the next SPO2_N_SAMPLES fields, same pattern as above. */
-    for (int i = 0; i < SPO2_N_SAMPLES; i++)
+    /* Red channel: the next n_samples fields, same pattern as above. */
+    for (int i = 0; i < *n_samples; i++)
     {
         if (!tok)
             return 0;
@@ -135,8 +149,8 @@ int main(int argc, char **argv)
      * memory footprint), and they're reused across iterations with no
      * need to reinitialize them each time. */
     static char line[MAX_LINE];
-    static float ir[SPO2_N_SAMPLES];
-    static float red[SPO2_N_SAMPLES];
+    static float ir[SPO2_MAX_N_SAMPLES];
+    static float red[SPO2_MAX_N_SAMPLES];
     static char rd_column[MAX_COLUMN_LEN];
 
     /* Consume the header line of the input CSV before the data loop. */
@@ -154,7 +168,7 @@ int main(int argc, char **argv)
      * and a breakdown of rejection reasons (see Spo2Status in
      * spo2_pipeline.h) for the final summary. */
     int n_total = 0, n_ok = 0;
-    int n_low_ac = 0, n_low_snr = 0, n_r_range = 0;
+    int n_low_ac = 0, n_low_snr = 0, n_r_range = 0, n_bad_n_samples = 0;
     /* Error accumulators (predicted SpO2 vs. reference), computed only over
      * accepted captures, used to compute the global RMSE and MAE at the end. */
     double sum_sq_err = 0.0, sum_abs_err = 0.0;
@@ -172,10 +186,10 @@ int main(int argc, char **argv)
         /* Per-row outputs of parse_row(); declared inside the loop since
          * they only need to live for the current iteration. */
         float ref;
-        int rd_row;
+        int rd_row, n_samples;
         /* Truncated or blank line (e.g. a trailing blank line in the
          * file): discard it without counting it in n_total or the stats. */
-        if (!parse_row(line, ir, red, &ref, &rd_row, rd_column))
+        if (!parse_row(line, ir, red, &n_samples, &ref, &rd_row, rd_column))
             continue;
 
         /* Row was well-formed: count it towards the total processed. */
@@ -183,10 +197,12 @@ int main(int argc, char **argv)
 
         /* Run the C SpO2 pipeline on this capture: computes the ratio R,
          * quality metrics (SNR, PI, SQI) and heart rate, and validates the
-         * capture against the configured thresholds. */
+         * capture against the configured thresholds. n_samples comes from
+         * the row itself, so captures of different lengths are handled
+         * without any change to this call. */
         float R, snr, pi, hr_bpm;
         uint8_t sqi;
-        Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, &hr_bpm, &sqi);
+        Spo2Status status = spo2_compute_R(ir, red, n_samples, &R, &snr, &pi, &hr_bpm, &sqi);
         /* Boolean shorthand for "the pipeline accepted this capture". */
         int valid = (status == SPO2_OK);
         /* SpO2 estimate from R via the calibration curve, computed even
@@ -239,6 +255,11 @@ int main(int argc, char **argv)
             /* R outside [SPO2_R_MIN, SPO2_R_MAX]: tally and move on. */
             n_r_range++;
             break;
+        case SPO2_ERR_N_SAMPLES:
+            /* n_samples too small to leave a usable window, or larger than
+             * SPO2_MAX_N_SAMPLES: tally and move on. */
+            n_bad_n_samples++;
+            break;
         }
     }
     /* Done reading/writing: release both file handles before reporting. */
@@ -282,7 +303,8 @@ int main(int argc, char **argv)
     printf("Valid captures              = %d (%.1f %%) \n", n_ok, pct_ok);
     printf(" Rejected: low AC           = %d\n", n_low_ac);
     printf(" Rejected: low SNR          = %d\n", n_low_snr);
-    printf(" Rejected: R out of range   = %d\n\n", n_r_range);
+    printf(" Rejected: R out of range   = %d\n", n_r_range);
+    printf(" Rejected: bad n_samples    = %d\n\n", n_bad_n_samples);
 
     printf("Results written to '%s'\n\n", out_path);
 

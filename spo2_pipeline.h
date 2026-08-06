@@ -19,15 +19,15 @@
 
 /* Sampling frequency of the IR/Red capture, in Hz. */
 #define SPO2_FS 50.0f
-/* Number of samples per capture (per channel), as delivered by the caller. */
-#define SPO2_N_SAMPLES 600
+/* Upper bound on the number of samples per capture (per channel) that the
+ * statically-sized working buffers can hold. The actual sample count is
+ * variable and always taken from the caller's raw capture length (the
+ * n_samples argument to spo2_compute_R / spo2_compute); this macro only
+ * caps how large that buffer can be, it is not the capture length itself. */
+#define SPO2_MAX_N_SAMPLES 2000
 /* Samples discarded at each edge of the capture, to crop out the bandpass
  * filter's startup transient (see bandpass_filter in spo2_pipeline.c). */
 #define SPO2_MARGIN_SAMPLES 25
-/* Length of the cropped working window: N_SAMPLES minus one margin on
- * each side (600 - 2*25 = 550). This is the actual length used for every
- * DC/AC/frequency computation in spo2_compute_R. */
-#define SPO2_N_WORK 550
 
 /* Lower edge of the cardiac frequency band, in Hz. */
 #define SPO2_FC_MIN 0.5f
@@ -45,7 +45,7 @@
  * Capped at 1.0 because only ~0.3% of the calibration dataset (2 of 591
  * valid captures) falls above it; regressing past that point is
  * extrapolation from almost no data, not a supported measurement. */
-#define SPO2_R_MAX 1.0f
+#define SPO2_R_MAX 2.0f
 
 /* SQI (Signal Quality Index), range 0-255. Combines three components,
  * each normalized to [0,1] and weighted by SQI_W_*, then scaled to 8 bits:
@@ -111,6 +111,9 @@ typedef enum
     SPO2_ERR_LOW_SNR = -2,
     /* Computed R outside [SPO2_R_MIN, SPO2_R_MAX]. */
     SPO2_ERR_R_RANGE = -3,
+    /* n_samples is too small to leave a usable window after cropping
+     * SPO2_MARGIN_SAMPLES off each edge, or exceeds SPO2_MAX_N_SAMPLES. */
+    SPO2_ERR_N_SAMPLES = -4,
 } Spo2Status;
 
 /* ─── Public API ─────────────────────────────────────────────────────── */
@@ -118,8 +121,13 @@ typedef enum
 /**
  * Computes the ratio R and signal-quality metrics.
  *
- * @param ir        Array of SPO2_N_SAMPLES IR samples (infrared channel)
- * @param red       Array of SPO2_N_SAMPLES Red samples (red channel)
+ * @param ir        Array of n_samples IR samples (infrared channel)
+ * @param red       Array of n_samples Red samples (red channel)
+ * @param n_samples Number of samples per channel in this capture, as taken
+ *                  from the raw signal (must be <= SPO2_MAX_N_SAMPLES and
+ *                  leave a non-empty window after cropping
+ *                  SPO2_MARGIN_SAMPLES off each edge, otherwise
+ *                  SPO2_ERR_N_SAMPLES is returned)
  * @param out_R       [out] Ratio R = (AC_red/DC_red) / (AC_ir/DC_ir)
  * @param out_snr     [out] SNR at the dominant heart-rate frequency (dB)
  * @param out_pi      [out] IR perfusion index (%)
@@ -127,7 +135,7 @@ typedef enum
  * @param out_sqi     [out] Signal Quality Index, 0-255 (255 = best quality)
  * @return            SPO2_OK, or an error code
  */
-Spo2Status spo2_compute_R(const float *ir, const float *red,
+Spo2Status spo2_compute_R(const float *ir, const float *red, int n_samples,
                           float *out_R, float *out_snr, float *out_pi,
                           float *out_hr_bpm, uint8_t *out_sqi);
 
@@ -145,7 +153,7 @@ float spo2_predict(float R);
  * Returns SPO2_OK and fills *out_spo2, *out_hr_bpm and *out_sqi, or an
  * error code (in which case *out_spo2 is left untouched).
  */
-Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,
-                        float *out_hr_bpm, uint8_t *out_sqi);
+Spo2Status spo2_compute(const float *ir, const float *red, int n_samples,
+                        float *out_spo2, float *out_hr_bpm, uint8_t *out_sqi);
 
 #endif /* SPO2_PIPELINE_H */

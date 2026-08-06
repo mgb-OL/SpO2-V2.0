@@ -1,26 +1,32 @@
 """
 Convierte inputs/rd.csv (celdas con arrays IR/Red embebidos como texto tipo
-diccionario Python) en un CSV plano de columnas numericas:
+diccionario Python) en un CSV plano de columnas numericas, una fila por
+captura:
 
-    IR_0, ..., IR_599, Red_0, ..., Red_599, SpO2_ref, rd_row, rd_column
+    n_samples, IR_0, ..., IR_{n_samples-1}, Red_0, ..., Red_{n_samples-1},
+    SpO2_ref, rd_row, rd_column
 
 listo para que main.c (que enlaza con spo2_pipeline.c) lo lea directamente
-con fscanf/strtok, sin necesidad de parsear texto en C.
+con strtok, sin necesidad de parsear texto en C. n_samples es la longitud
+real de cada captura (tomada del propio array IR/Red) y puede variar de una
+fila a otra: no se asume ningun tamano fijo, cada fila lleva el suyo por
+delante para que main.c sepa cuantos valores leer.
 
 rd_row y rd_column identifican la celda de origen en rd.csv (fila y nombre
 de columna, p.ej. "S3"), para poder cruzar los resultados de main.c con el
 dataset original.
 
-Solo se incluyen capturas cuyos arrays IR y Red tengan exactamente
-N_SAMPLES muestras (deben coincidir con SPO2_N_SAMPLES en spo2_pipeline.h).
+Solo se incluyen capturas cuyos arrays IR y Red tengan la misma longitud
+entre si (y al menos una muestra); no se exige que coincidan con ningun
+N_SAMPLES fijo. main.c descarta las que no le quepan en su buffer estatico
+(ver SPO2_MAX_N_SAMPLES en spo2_pipeline.h).
 """
+import csv
 import sys
 
 import pandas as pd
 
 from spo2_pipeline import _extract_arrays
-
-N_SAMPLES = 600  # debe coincidir con SPO2_N_SAMPLES en spo2_pipeline.h
 
 
 def convert(csv_in: str, csv_out: str) -> int:
@@ -35,14 +41,14 @@ def convert(csv_in: str, csv_out: str) -> int:
             ir, red, ref = _extract_arrays(cell)
             if ir is None or red is None or ref is None:
                 continue
-            if len(ir) != N_SAMPLES or len(red) != N_SAMPLES:
+            if len(ir) != len(red) or len(ir) == 0:
                 continue
-            rows.append(list(ir) + list(red) + [ref, i, df_raw.columns[j]])
+            rows.append([len(ir)] + list(ir) + list(red) + [ref, i, df_raw.columns[j]])
 
-    columns = ([f"IR_{k}" for k in range(N_SAMPLES)]
-               + [f"Red_{k}" for k in range(N_SAMPLES)]
-               + ["SpO2_ref", "rd_row", "rd_column"])
-    pd.DataFrame(rows, columns=columns).to_csv(csv_out, index=False)
+    with open(csv_out, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["n_samples", "IR...", "Red...", "SpO2_ref", "rd_row", "rd_column"])
+        writer.writerows(rows)
     return len(rows)
 
 
@@ -51,4 +57,4 @@ if __name__ == "__main__":
     csv_out = sys.argv[2] if len(sys.argv) > 2 else "inputs/spo2_captures.csv"
 
     n = convert(csv_in, csv_out)
-    print(f"{n} capturas de {N_SAMPLES} muestras escritas en {csv_out}")
+    print(f"{n} capturas escritas en {csv_out}")

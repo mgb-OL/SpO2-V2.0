@@ -279,20 +279,36 @@ static uint8_t compute_sqi(float snr_db, float pi_pct, float purity)
  * 3. RATIO R COMPUTATION
  * ═══════════════════════════════════════════════════════════════════════ */
 
-Spo2Status spo2_compute_R(const float *ir, const float *red,
+Spo2Status spo2_compute_R(const float *ir, const float *red, int n_samples,
                           float *out_R, float *out_snr, float *out_pi,
                           float *out_hr_bpm, uint8_t *out_sqi)
 {
     /* Static buffers: no malloc, same embedded-friendly convention used
-     * throughout this pipeline (deterministic, fixed memory footprint). */
-    static float ir_work[SPO2_N_WORK];
-    static float red_work[SPO2_N_WORK];
-    static float ir_ac[SPO2_N_WORK];
-    static float ir_nodC[SPO2_N_WORK];
-    static float red_nodC[SPO2_N_WORK];
+     * throughout this pipeline (deterministic, fixed memory footprint).
+     * Sized to the maximum supported capture; the actually-used length is
+     * n, derived below from n_samples (the real length of the raw signal). */
+    static float ir_work[SPO2_MAX_N_SAMPLES];
+    static float red_work[SPO2_MAX_N_SAMPLES];
+    static float ir_ac[SPO2_MAX_N_SAMPLES];
+    static float ir_nodC[SPO2_MAX_N_SAMPLES];
+    static float red_nodC[SPO2_MAX_N_SAMPLES];
 
     const int m = SPO2_MARGIN_SAMPLES;
-    const int n = SPO2_N_WORK;
+    /* Working window length: n_samples minus one margin on each side.
+     * Replaces the old compile-time SPO2_N_WORK now that capture length
+     * varies per raw signal instead of being fixed at 600. */
+    const int n = n_samples - 2 * m;
+
+    /* Reject captures too short to leave a usable window after cropping,
+     * or longer than the statically-sized buffers can hold. */
+    if (n_samples > SPO2_MAX_N_SAMPLES || n <= 1)
+    {
+        *out_R = 0.0f;
+        *out_snr = 0.0f;
+        *out_pi = 0.0f;
+        *out_sqi = 0;
+        return SPO2_ERR_N_SAMPLES;
+    }
 
     /* Copy the working region, cropping SPO2_MARGIN_SAMPLES off each edge
      * of the raw capture (discards the bandpass filter's startup
@@ -379,11 +395,12 @@ float spo2_predict(float R)
     return fmaxf(SPO2_OUT_MIN, fminf(SPO2_OUT_MAX, spo2));
 }
 
-Spo2Status spo2_compute(const float *ir, const float *red, float *out_spo2,
-                        float *out_hr_bpm, uint8_t *out_sqi)
+Spo2Status spo2_compute(const float *ir, const float *red, int n_samples,
+                        float *out_spo2, float *out_hr_bpm, uint8_t *out_sqi)
 {
     float R, snr, pi;
-    Spo2Status status = spo2_compute_R(ir, red, &R, &snr, &pi, out_hr_bpm, out_sqi);
+    Spo2Status status = spo2_compute_R(ir, red, n_samples, &R, &snr, &pi,
+                                       out_hr_bpm, out_sqi);
     /* Only predict SpO2 once R has passed every quality check; on error,
      * *out_spo2 is deliberately left untouched (see header docstring). */
     if (status == SPO2_OK)
