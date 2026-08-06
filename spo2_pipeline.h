@@ -80,7 +80,7 @@
 /* Weight of the spectral-purity component in the SQI blend. */
 #define SQI_W_PURITY 0.3f
 
-/* Quadratic calibration coefficients (SpO2 = CAL_A + CAL_B * R + CAL_C * R^2).
+/* Quadratic calibration coefficients (SpO2 = CAL_0 + CAL_1 * R + CAL_2 * R^2).
  * Degree-2 polynomial regression over the calibration captures with
  * R <= SPO2_R_MAX (589 of 591 valid captures). Unconstrained regression over
  * the full dataset turns upward past R ~= 1.06 (not physiologically valid),
@@ -89,9 +89,9 @@
  * monotonically decreasing on its own (vertex at R ~= 1.35, outside range).
  * RMSE = 4.31%
  * Update after every calibration session. */
-#define SPO2_CAL_A 107.49f
-#define SPO2_CAL_B -52.88f
-#define SPO2_CAL_C 19.55f
+#define SPO2_CAL_0 116.49f
+#define SPO2_CAL_1 -52.88f
+#define SPO2_CAL_2 19.55f
 
 /* Physiologically plausible bounds for the final SpO2 output (%); the
  * quadratic fit overshoots 100 near SPO2_R_MIN, so the output is clamped
@@ -141,7 +141,7 @@ Spo2Status spo2_compute_R(const float *ir, const float *red, int n_samples,
 
 /**
  * Applies the quadratic calibration curve to obtain SpO2 (%).
- * SpO2 = CAL_A + CAL_B * R + CAL_C * R^2
+ * SpO2 = CAL_0 + CAL_1 * R + CAL_2 * R^2
  *
  * @param R     Valid ratio R (from spo2_compute_R)
  * @return      Estimated SpO2 (%)
