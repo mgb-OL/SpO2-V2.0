@@ -111,7 +111,7 @@ static float goertzel_power(const float *x, int n, float f, float fs)
     {
         /* Hanning window, applied sample-by-sample as it's fed into the
          * recursion (equivalent to windowing the whole signal first). */
-        float w = 0.5f * (1.0f - cosf(2.0f * (float)M_PI * i / (n - 1)));
+        float w = 0.5f * (1.0f - cosf(2.0f * (float)M_PI * (float)i / (float)(n - 1)));
         float s = w * x[i] + coeff * s_prev - s_prev2;
         s_prev2 = s_prev;
         s_prev = s;
@@ -313,8 +313,8 @@ Spo2Status spo2_compute_R(const float *ir, const float *red, int n_samples,
     /* Copy the working region, cropping SPO2_MARGIN_SAMPLES off each edge
      * of the raw capture (discards the bandpass filter's startup
      * transient and any edge artifacts from the acquisition window). */
-    memcpy(ir_work, ir + m, n * sizeof(float));
-    memcpy(red_work, red + m, n * sizeof(float));
+    memcpy(ir_work, ir + m, (size_t)n * sizeof(float));
+    memcpy(red_work, red + m, (size_t)n * sizeof(float));
 
     /* DC = arithmetic mean of the cropped window, per channel. */
     float dc_ir = 0.0f, dc_red = 0.0f;
@@ -323,8 +323,8 @@ Spo2Status spo2_compute_R(const float *ir, const float *red, int n_samples,
         dc_ir += ir_work[i];
         dc_red += red_work[i];
     }
-    dc_ir /= n;
-    dc_red /= n;
+    dc_ir /= (float)n;
+    dc_red /= (float)n;
 
     /* DC-removed signal for both channels, ready for spectral analysis. */
     for (int i = 0; i < n; i++)

@@ -119,8 +119,8 @@ int main(int argc, char **argv)
 {
     /* Paths are configurable from the command line: ./main [input] [output];
      * with no arguments, the project's default paths are used instead. */
-    const char *path = (argc > 1) ? argv[1] : "inputs/spo2_captures.csv";
-    const char *out_path = (argc > 2) ? argv[2] : "outputs/spo2_results.csv";
+    const char *path = (argc > 1) ? argv[1] : "inputs/spo2_captures_xavi.csv";
+    const char *out_path = (argc > 2) ? argv[2] : "outputs/spo2_results_xavi.csv";
 
     /* Open the input CSV for reading; bail out early if it doesn't exist. */
     FILE *f = fopen(path, "r");
